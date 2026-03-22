@@ -2006,8 +2006,8 @@ returned."
 
 ;;; SyncTeX
 
-(defvar TeX-synctex-tex-flags "-synctex=1"
-  "Extra flags to pass to TeX commands to enable SyncTeX.")
+(defvar TeX-synctex-tex-flags "--synctex=1"
+  "Extra flags to pass to TeX commands to enable SyncTeX. Note some distributions require one hyphen, others require two.")
 
 (defun TeX-synctex-output-page-1 (file)
   "Return the page corresponding to the current position in FILE.
