@@ -2006,7 +2006,7 @@ returned."
 
 ;;; SyncTeX
 
-(defvar TeX-synctex-tex-flags "--synctex=1"
+(defvar TeX-synctex-tex-flags "-synctex=1"
   "Extra flags to pass to TeX commands to enable SyncTeX.")
 
 (defun TeX-synctex-output-page-1 (file)
