@@ -478,7 +478,8 @@ sync with the preview."
   :type '(choice
           (const :tag "Only at point with source" at-point)
           (const :tag "Only away from point, hiding source" off-point)
-          (const :tag "Both" always)))
+          (const :tag "Both" always))
+  :package-version '(auctex . "14.2.0"))
 
 (defcustom preview-keep-stale-images nil
   "Keep the last preview image visible even when the source changes.
@@ -489,7 +490,8 @@ icon.  When nil, the icon appears until the refreshed image arrives.
 The value of this variable is ignored when `preview-visibility-style' is
 `off-point'.  In that case, stale images are never retained."
   :group 'preview-appearance
-  :type 'boolean)
+  :type 'boolean
+  :package-version '(auctex . "14.2.0"))
 
 (defcustom preview-at-point-placement 'before-string
   "Placement of the at-point preview or icon relative to its source.
@@ -520,7 +522,8 @@ where:
                  (const :tag "Default" nil)
                  (function :tag "Position function"))
                 (alist :tag "Frame parameters")
-                (alist :tag "Buffer parameters"))))
+                (alist :tag "Buffer parameters")))
+  :package-version '(auctex . "14.2.0"))
 
 (defun preview-string-expand (arg &optional separator)
   "Expand ARG as a string.
@@ -644,7 +647,8 @@ You may set the variable `preview-dvi*-command' to
       (concat
        (TeX-command-expand
         (or cmd
-            "dvisvgm --no-fonts %d --page=- --output=\"%m/prev%%3p.svg\""))
+            "dvisvgm --no-fonts --currentcolor --page=- %d \
+ --output=\"%m/prev%%3p.svg\""))
        (format " --scale=%g " scale)))))
 
 (defcustom preview-dvips-command
@@ -1343,22 +1347,41 @@ is located."
   (cons 'image (cdr icon)))
 
 (defcustom preview-leave-open-previews-visible nil
-  "Whether to leave previews visible when they are opened.
-If nil, then the TeX preview icon is used when the preview is opened.
-If non-nil, then the preview image remains visible.  In either case, the
-TeX code appears either below or to the right of the displayed graphic.
-
-If you enable this option, the preview image doesn't turn into
-construction sign temporarily when you edit the underlying LaTeX code
-and regenerate the preview; it is just replaced by updated image when
-ready.  This behavior suppresses flicker in the appearance."
+  "Obsolete option; whether to leave previews visible when they are opened.
+This option is obsolete.  When set to non-nil, it configures
+`preview-visibility-style' to \\='always and `preview-keep-stale-images'
+to t.  When set to nil, it does not change those variables."
   :group 'preview-appearance
   :type 'boolean)
+
+(defun preview--obsolete-leave-open-previews-visible-apply (value)
+  "Apply obsolete `preview-leave-open-previews-visible' VALUE.
+When VALUE is non-nil, configure `preview-visibility-style' and
+`preview-keep-stale-images' to match the old behavior."
+  (when value
+    (set-default 'preview-visibility-style 'always)
+    (set-default 'preview-keep-stale-images t)))
+
+(defun preview--obsolete-leave-open-previews-visible-watcher
+    (_symbol newval operation where)
+  (when (and (eq operation 'set)
+             ;; Ignore buffer-local bindings.
+             (null where))
+    (preview--obsolete-leave-open-previews-visible-apply newval)))
 
 (make-obsolete-variable
  'preview-leave-open-previews-visible
  "Use `preview-visibility-style' and `preview-keep-stale-images' instead."
  "14.2.0")
+
+(add-variable-watcher
+ 'preview-leave-open-previews-visible
+ #'preview--obsolete-leave-open-previews-visible-watcher)
+
+;; Handle `setq' from before preview.el is loaded.
+(when (default-value 'preview-leave-open-previews-visible)
+  (preview--obsolete-leave-open-previews-visible-apply
+   (default-value 'preview-leave-open-previews-visible)))
 
 (defsubst preview-replace-active-icon (ov replacement)
   "Replace the active Icon in OV by REPLACEMENT, another icon."
@@ -4571,10 +4594,7 @@ If not a regular release, the date of the last change.")
           (insert "\n")))
     (error nil)))
 
-;;; buframe specific
-
-;; Buframe functions, it will be assumed that buframe is installed so
-;; that it can be required.
+;;; buframe-specific functions.
 (declare-function buframe-position-right-of-overlay "ext:buframe"
                   (frame ov &optional location))
 (declare-function buframe-make-buffer "ext:buframe" (name &optional locals))
@@ -4586,61 +4606,74 @@ If not a regular release, the date of the last change.")
 (declare-function buframe-find "ext:buframe"
                   (&optional frame-or-name buffer parent noerror))
 
+(defvar preview--buframe-error t
+  "When non-nil, issue a one-time error if loading buframe fails.")
+
 (defun preview--update-buframe (&optional force)
   "Show or hide a buframe popup depending on overlays at point.
 
 The frame is not updated if the `buframe' property has not changed,
 unless FORCE is non-nil."
-  (when (featurep 'buframe)
-    (let* ((frame-name "auctex-preview")
-           (buf-name " *auctex-preview-buffer*")
-           (old-frame (buframe-find frame-name nil nil t)))
-      (if-let* ((ov (cl-find-if
-                     (lambda (ov) (when (overlay-get ov 'buframe) ov))
-                     (overlays-at (point))))
-                (str (overlay-get ov 'buframe)))
-          (unless (and (not force)
-                       old-frame
-                       (pcase (frame-parameter old-frame 'auctex-preview)
-                         (`(,o . ,s) (and (eq o ov) (eq s str)))))
-            (let* ((buf (buframe-make-buffer buf-name
-                                             (car-safe
-                                              (cddr (cdr-safe
-                                                     preview-at-point-placement)))))
-                   (max-image-size
-                    (if (integerp max-image-size)
-                        max-image-size
-                      ;; Set the size max-image-size using the current frame
-                      ;; since the popup frame will be small to begin with
-                      (* max-image-size (frame-width)))))
-              (with-current-buffer buf
-                (let (buffer-read-only)
-                  (with-silent-modifications
-                    (erase-buffer)
-                    (insert (propertize str
-                                        ;; Remove unnecessary properties
-                                        'help-echo nil
-                                        'keymap nil
-                                        'mouse-face nil))
-                    (goto-char (point-min)))))
-              (setq old-frame
-                    (buframe-make
-                     frame-name
-                     (lambda (frame)
-                       (funcall
-                        (or (car-safe (cdr-safe preview-at-point-placement))
-                            #'buframe-position-right-of-overlay)
-                        frame
-                        ov))
-                     buf
-                     (overlay-buffer ov)
-                     (window-frame)
-                     (car-safe (cdr (cdr-safe preview-at-point-placement)))))
-              (set-frame-parameter old-frame 'auctex-preview
-                                   (cons ov str))))
-        (when old-frame
-          (set-frame-parameter old-frame 'auctex-preview nil)
-          (buframe-disable old-frame))))))
+  (let* ((frame-name "auctex-preview")
+         (buf-name " *auctex-preview-buffer*")
+         (old-frame (and (featurep 'buframe)
+                         ;; Do not autoload buframe if it is not already
+                         ;; loaded.
+                         (buframe-find frame-name nil nil t))))
+    (if-let* ((ov (cl-find-if
+                   (lambda (ov) (when (overlay-get ov 'buframe) ov))
+                   (overlays-at (point))))
+              (str (overlay-get ov 'buframe)))
+        (unless (and (not force)
+                     old-frame
+                     (pcase (frame-parameter old-frame 'auctex-preview)
+                       (`(,o . ,s) (and (eq o ov) (eq s str)))))
+          (if (require 'buframe nil t)
+              (let* ((buf (buframe-make-buffer
+                           buf-name
+                           (car-safe
+                            (cddr (cdr-safe
+                                   preview-at-point-placement)))))
+                     (max-image-size
+                      (if (integerp max-image-size)
+                          max-image-size
+                        ;; Set the size max-image-size using the current
+                        ;; frame, since the popup frame will be small to
+                        ;; begin with.
+                        (* max-image-size (frame-width)))))
+                (with-current-buffer buf
+                  (let (buffer-read-only)
+                    (with-silent-modifications
+                      (erase-buffer)
+                      (insert (propertize str
+                                          ;; Remove unnecessary properties
+                                          'help-echo nil
+                                          'keymap nil
+                                          'mouse-face nil))
+                      (goto-char (point-min)))))
+                (setq old-frame
+                      (buframe-make
+                       frame-name
+                       (lambda (frame)
+                         (funcall
+                          (or (car-safe (cdr-safe preview-at-point-placement))
+                              #'buframe-position-right-of-overlay)
+                          frame
+                          ov))
+                       buf
+                       (overlay-buffer ov)
+                       (window-frame)
+                       (car-safe (cdr (cdr-safe
+                                       preview-at-point-placement)))))
+                (set-frame-parameter old-frame 'auctex-preview
+                                     (cons ov str)))
+            (when preview--buframe-error
+              (setq preview--buframe-error nil)
+              (error "buframe is unavailable for use with preview. \
+See `preview-at-point-placement'."))))
+      (when old-frame
+        (set-frame-parameter old-frame 'auctex-preview nil)
+        (buframe-disable old-frame)))))
 
 ;;;###autoload
 (defun preview-report-bug () "Report a bug in the preview-latex package."
